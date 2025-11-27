@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     // Greeting 是一个自定义的 Composable，用于显示问候语
                     Greeting(
-                        name = "Android",
+                        name = "Persona",
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
