@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -33,11 +35,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
+
     buildFeatures {
         compose = true
+    }
+}
+kotlin{
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_11)
     }
 }
 
@@ -57,10 +62,23 @@ dependencies {
     // Icons
     implementation(libs.androidx.compose.material.icons.extended)
 
+    //Markdown
+    implementation(libs.core)
+
+    // 如果需要在 Compose 中使用，添加此依赖
+//    implementation(libs.app.compose)
+
+    // (可选) 如果需要显示图片，添加图片加载库的插件
+    implementation(libs.image.coil) // 比如使用 Coil
+
+    // (可选) 如果需要支持表格
+    implementation(libs.ext.tables)
+
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.logging.interceptor)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.appcompat)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -69,3 +87,4 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
+
