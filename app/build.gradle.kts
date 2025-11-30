@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose.v280)
     // Icons
     implementation(libs.androidx.compose.material.icons.extended)
+    // Navigation
+    implementation(libs.androidx.navigation.compose)
 
     //Markdown
     implementation(libs.core)

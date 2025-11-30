@@ -5,9 +5,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.bytedance.persona.llm.Llm
+import com.bytedance.persona.llm.LlmModel
 import com.bytedance.persona.llm.LlmProvider
-import com.bytedance.persona.llm.defaultModels
+import com.bytedance.persona.llm.LlmRepository
 import com.bytedance.persona.model.Message
 import com.bytedance.persona.model.Sender
 import kotlinx.coroutines.flow.catch
@@ -20,8 +20,11 @@ class ChatViewModel(private val llmProvider: LlmProvider) : ViewModel() {
     private val _messages = mutableStateListOf<Message>()
     val messages: List<Message> = _messages
 
-    // 当前选择的 LLM
-    var selectedLlm = mutableStateOf(defaultModels.first())
+    // 从 Repository 获取模型列表
+    val llmModels = LlmRepository.models
+
+    // 当前选择的 LLM，类型已更新为 LlmModel
+    var selectedLlm = mutableStateOf(LlmRepository.models.first())
         private set
 
     init {
@@ -57,9 +60,9 @@ class ChatViewModel(private val llmProvider: LlmProvider) : ViewModel() {
         llmProvider.generateResponse(prompt, selectedLlm.value)
             .onStart { /* Optionally handle start of stream */ }
             .catch { e ->
-                updateMessageContent(messageId, "出错了: ${e.message}")
+                updateMessageContent(messageId, "出错了: ${e.message ?: "未知错误"}")
             }
-            .onCompletion { 
+            .onCompletion {
                 markMessageStreamingFinished(messageId)
             }
             .collect { chunk ->
@@ -86,13 +89,38 @@ class ChatViewModel(private val llmProvider: LlmProvider) : ViewModel() {
         }
     }
 
-    fun selectLlm(llm: Llm) {
+    // 方法参数已更新为 LlmModel
+    fun selectLlm(llm: LlmModel) {
         selectedLlm.value = llm
         addMessage(Message(content = "模型已切换为: **${llm.name}**", sender = Sender.AI))
     }
+
+    // --- 新增的模型管理函数 ---
+    fun addLlm(model: LlmModel) {
+        LlmRepository.addModel(model)
+    }
+
+    fun updateLlm(model: LlmModel) {
+        LlmRepository.updateModel(model)
+        // 如果更新的是当前选中的模型，则同步更新状态
+        if (selectedLlm.value.id == model.id) {
+            selectedLlm.value = model
+        }
+    }
+
+    fun removeLlm(model: LlmModel) {
+        // 至少保留一个模型
+        if (LlmRepository.models.size <= 1) return
+
+        // 如果删除的是当前选中的模型，则切换到另一个模型
+        if (selectedLlm.value.id == model.id) {
+            selectLlm(LlmRepository.models.first { it.id != model.id })
+        }
+        LlmRepository.removeModel(model)
+    }
 }
 
-// ViewModel Factory
+// ViewModel Factory 无需改动
 class ChatViewModelFactory(private val llmProvider: LlmProvider) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {

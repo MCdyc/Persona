@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,13 +65,16 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.bytedance.persona.llm.DefaultLlmProvider
-import com.bytedance.persona.llm.Llm
-import com.bytedance.persona.llm.defaultModels
 import com.bytedance.persona.model.Message
 import com.bytedance.persona.model.MessageType
 import com.bytedance.persona.model.Sender
+import com.bytedance.persona.ui.ModelManagementScreen
 import com.bytedance.persona.ui.theme.PersonaTheme
 import com.bytedance.persona.viewmodel.ChatViewModel
 import com.bytedance.persona.viewmodel.ChatViewModelFactory
@@ -80,39 +84,55 @@ import io.noties.markwon.image.coil.CoilImagesPlugin
 
 class MainActivity : ComponentActivity() {
 
-    // 1. 实例化 LlmProvider 和 ViewModelFactory
     private val llmProvider = DefaultLlmProvider()
     private val viewModelFactory: ChatViewModelFactory by lazy {
         ChatViewModelFactory(llmProvider)
     }
 
-    @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 2. 使用自定义 Factory 创建 ViewModel
         val viewModel: ChatViewModel by viewModels { viewModelFactory }
 
         setContent {
             PersonaTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    topBar = { PersonaTopBar(viewModel = viewModel) }
-                ) { innerPadding -> // 明确声明 innerPadding 参数
-                    ChatScreen(
-                        viewModel = viewModel,
-                        modifier = Modifier.padding(innerPadding) // 正确使用 innerPadding
-                    )
+                // Set up the navigation controller
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "chat") {
+                    composable("chat") {
+                        MainChatScreen(navController = navController, viewModel = viewModel)
+                    }
+                    composable("settings") {
+                        ModelManagementScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+// A new composable for the main screen that includes the Scaffold
+@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
+@Composable
+fun MainChatScreen(navController: NavController, viewModel: ChatViewModel) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { PersonaTopBar(viewModel = viewModel, onNavigateToSettings = { navController.navigate("settings") }) }
+    ) { innerPadding ->
+        ChatScreen(
+            viewModel = viewModel,
+            modifier = Modifier.padding(innerPadding)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PersonaTopBar(viewModel: ChatViewModel) { // 接收 viewModel
+fun PersonaTopBar(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit) {
     var showMenu by remember { mutableStateOf(false) }
 
     TopAppBar(
@@ -124,20 +144,26 @@ fun PersonaTopBar(viewModel: ChatViewModel) { // 接收 viewModel
             }
         },
         actions = {
-            // LLM 切换菜单
             Box {
-                Row(modifier = Modifier.clickable { showMenu = true }, verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.clickable { showMenu = true },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(viewModel.selectedLlm.value.name, style = MaterialTheme.typography.bodyMedium)
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = "Switch LLM")
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    defaultModels.forEach { llm ->
+                    viewModel.llmModels.forEach { llm ->
                         DropdownMenuItem(text = { Text(llm.name) }, onClick = {
                             viewModel.selectLlm(llm)
                             showMenu = false
                         })
                     }
                 }
+            }
+
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Manage Models")
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -152,12 +178,10 @@ fun ChatScreen(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxSize()) {
-        // 消息列表
         MessageList(
             messages = viewModel.messages,
             modifier = Modifier.weight(1f)
         )
-        // 输入区域
         InputArea(
             onSend = { viewModel.sendMessage(it) }
         )
@@ -168,7 +192,6 @@ fun ChatScreen(
 fun MessageList(messages: List<Message>, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
 
-    // 当有新消息时自动滚动到底部
     LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -177,13 +200,11 @@ fun MessageList(messages: List<Message>, modifier: Modifier = Modifier) {
 
     LazyColumn(
         state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
+        modifier = modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(messages) { message ->
+        items(messages, key = { it.id }) { message ->
             MessageItem(message)
         }
     }
@@ -192,7 +213,6 @@ fun MessageList(messages: List<Message>, modifier: Modifier = Modifier) {
 @Composable
 fun MessageItem(message: Message) {
     val isUser = message.sender == Sender.USER
-    val horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
     val containerColor = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer
     val contentColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
     val shape = if (isUser) RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp)
@@ -207,44 +227,25 @@ fun MessageItem(message: Message) {
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        Column(horizontalAlignment =  horizontalAlignment ) {
-            // 消息气泡
-            Surface(
-                color = containerColor,
-                contentColor = contentColor,
-                shape = shape,
-                shadowElevation = 2.dp,
-                modifier = Modifier.widthIn(max = 320.dp)
-            ) {
-                Box(modifier = Modifier.padding(12.dp)) {
-                    when (message.type) {
-                        MessageType.TEXT -> {
-                            // 使用 Markwon 渲染 Markdown
-                            Markdown(content = message.content)
-                        }
-                        MessageType.IMAGE -> {
-                            Column {
-                                AsyncImage(
-                                    model = message.content,
-                                    contentDescription = "AI Generated Image",
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                        .clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop
-                                )
-                                Text(
-                                    text = "AI Generated Art",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(top = 4.dp),
-                                    color = contentColor.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                        MessageType.AUDIO -> {
-                            AudioMessageItem(contentColor)
-                        }
+        Surface(
+            color = containerColor,
+            contentColor = contentColor,
+            shape = shape,
+            shadowElevation = 2.dp,
+            modifier = Modifier.widthIn(max = 320.dp)
+        ) {
+            Box(modifier = Modifier.padding(12.dp)) {
+                when (message.type) {
+                    MessageType.TEXT -> Markdown(content = message.content)
+                    MessageType.IMAGE -> {
+                        AsyncImage(
+                            model = message.content,
+                            contentDescription = "AI Generated Image",
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop
+                        )
                     }
+                    MessageType.AUDIO -> AudioMessageItem(contentColor)
                 }
             }
         }
@@ -259,52 +260,34 @@ fun MessageItem(message: Message) {
 @Composable
 fun Markdown(content: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-
-    // 1. 创建并记住 Markwon 实例，配置所需插件
     val markwon = remember {
         Markwon.builder(context)
-            .usePlugin(CoilImagesPlugin.create(context)) // 使用 Coil 加载图片
-            .usePlugin(TablePlugin.create(context))      // 支持 GFM 表格
+            .usePlugin(CoilImagesPlugin.create(context))
+            .usePlugin(TablePlugin.create(context))
             .build()
     }
 
-    // 2. 使用 AndroidView 包装一个 TextView
     AndroidView(
-        // `factory` 创建 View，只执行一次
-        factory = { ctx ->
-            androidx.appcompat.widget.AppCompatTextView(ctx).apply {
-                // 允许链接被点击
-                linksClickable = true
-            }
-        },
-        // `update` 在 content 或其他状态改变时执行
-        update = { textView ->
-            // 3. 使用 Markwon 将 Markdown 文本设置到 TextView上
-            markwon.setMarkdown(textView, content)
-        },
+        factory = { ctx -> androidx.appcompat.widget.AppCompatTextView(ctx).apply { linksClickable = true } },
+        update = { textView -> markwon.setMarkdown(textView, content) },
         modifier = modifier
     )
 }
+
 @Composable
 fun AudioMessageItem(tint: Color) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.width(150.dp)
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.width(150.dp)) {
         Icon(Icons.Filled.PlayArrow, contentDescription = "Play", tint = tint)
         Spacer(modifier = Modifier.width(8.dp))
         Icon(Icons.Filled.GraphicEq, contentDescription = null, tint = tint, modifier = Modifier.weight(1f))
-        Text("12''", style = MaterialTheme.typography.labelMedium, color = tint)
+        Text("12s", style = MaterialTheme.typography.labelMedium, color = tint)
     }
 }
 
 @Composable
 fun Avatar(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color) {
     Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(color.copy(alpha = 0.2f)),
+        modifier = Modifier.size(40.dp).clip(CircleShape).background(color.copy(alpha = 0.2f)),
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, contentDescription = null, tint = color)
@@ -316,35 +299,26 @@ fun InputArea(onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    Surface(
-        tonalElevation = 4.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(tonalElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 placeholder = { Text("Chat with Persona...") },
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 8.dp),
+                modifier = Modifier.weight(1f).padding(end = 8.dp),
                 shape = RoundedCornerShape(24.dp),
                 maxLines = 3,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(
-                    onSend = {
-                        if (text.isNotBlank()) {
-                            onSend(text)
-                            text = ""
-                            keyboardController?.hide()
-                        }
+                keyboardActions = KeyboardActions(onSend = {
+                    if (text.isNotBlank()) {
+                        onSend(text)
+                        text = ""
+                        keyboardController?.hide()
                     }
-                )
+                })
             )
 
             FloatingActionButton(

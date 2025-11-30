@@ -1,5 +1,6 @@
 package com.bytedance.persona.llm
 
+import androidx.compose.runtime.mutableStateListOf
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
@@ -18,59 +19,85 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Streaming
 import java.io.IOException
+import java.util.UUID
 
-// 1. 定义大语言模型 (LLM) 的数据结构
-sealed class Llm(val name: String, val apiKey: String) {
-    // Gemini 模型，使用其专用 SDK
-    data object Gemini : Llm("Gemini", "YOUR_GEMINI_API_KEY")
-
-    // 为所有与 OpenAI API 兼容的模型定义一个抽象基类
-    abstract class OpenAiCompatible(name: String, apiKey: String) : Llm(name, apiKey) {
-        abstract val baseUrl: String
-        abstract val modelId: String
-    }
-
-    data object OpenAI : OpenAiCompatible("OpenAI", "YOUR_OPENAI_API_KEY") {
-        override val baseUrl = "https://api.openai.com/v1/"
-        override val modelId = "gpt-3.5-turbo"
-    }
-
-    data object DeepSeek : OpenAiCompatible("DeepSeek", "YOUR_OPENAI_API_KEY") {
-        override val baseUrl = "https://api.deepseek.com/v1/"
-        override val modelId = "deepseek-chat"
-    }
-
-    class Custom(
-        name: String,
-        apiKey: String,
-        override val baseUrl: String,
-        override val modelId: String
-    ) : OpenAiCompatible(name, apiKey)
+// 1. 定义更灵活的模型数据结构
+enum class ModelType {
+    GEMINI,
+    OPENAI_COMPATIBLE
 }
 
-// 预设模型列表
-val defaultModels = listOf(Llm.Gemini, Llm.OpenAI, Llm.DeepSeek)
+data class LlmModel(
+    val id: String = UUID.randomUUID().toString(),
+    var name: String,
+    var apiKey: String,
+    val type: ModelType,
+    // baseUrl 和 modelId 对于 OpenAI 兼容模型是必需的
+    var baseUrl: String? = null,
+    var modelId: String? = null
+)
 
-// --- API 服务定义 ---
+// 2. 创建一个存储库来管理模型列表 (为了简单起见，暂时使用内存存储)
+object LlmRepository {
+    private val _models = mutableStateListOf<LlmModel>()
+    val models: List<LlmModel> = _models
 
-// OpenAI 聊天请求模型
+    init {
+        // 添加一些默认模型
+        // 在实际应用中，这些可以从数据库或 SharedPreferences 加载
+        _models.addAll(listOf(
+            LlmModel(
+                name = "Gemini",
+                apiKey = "YOUR_GEMINI_API_KEY",
+                type = ModelType.GEMINI,
+                modelId = "gemini-pro"
+            ),
+            LlmModel(
+                name = "OpenAI",
+                apiKey = "YOUR_OPENAI_API_KEY",
+                type = ModelType.OPENAI_COMPATIBLE,
+                baseUrl = "https://api.openai.com/v1/",
+                modelId = "gpt-3.5-turbo"
+            ),
+            LlmModel(
+                name = "DeepSeek",
+                apiKey = "YOUR_DEEPSEEK_API_KEY",
+                type = ModelType.OPENAI_COMPATIBLE,
+                baseUrl = "https://api.deepseek.com/v1/",
+                modelId = "deepseek-chat"
+            )
+        ))
+    }
+
+    fun addModel(model: LlmModel) {
+        _models.add(model)
+    }
+
+    fun removeModel(model: LlmModel) {
+        _models.remove(model)
+    }
+
+    fun updateModel(model: LlmModel) {
+        val index = _models.indexOfFirst { it.id == model.id }
+        if (index != -1) {
+            _models[index] = model
+        }
+    }
+}
+
+
+// --- API 服务定义 (与之前相同) ---
 data class OpenAiChatRequest(
     val model: String,
     val messages: List<OpenAiMessage>,
     val stream: Boolean = true
 )
-
 data class OpenAiMessage(val role: String, val content: String)
-
-// OpenAI 流式响应模型
-data class OpenAiStreamChunk(
-    val choices: List<Choice>?
-) {
+data class OpenAiStreamChunk(val choices: List<Choice>?) {
     data class Choice(val delta: Delta?)
     data class Delta(val content: String?)
 }
 
-// 用于 OpenAI 兼容 API 的 Retrofit 接口
 interface OpenAiApiService {
     @POST("chat/completions")
     @Streaming
@@ -80,15 +107,14 @@ interface OpenAiApiService {
     ): Call<ResponseBody>
 }
 
-// --- LLM Provider 实现 ---
 
+// --- LLM Provider 实现 (更新后) ---
 interface LlmProvider {
-    fun generateResponse(prompt: String, model: Llm): Flow<String>
+    fun generateResponse(prompt: String, model: LlmModel): Flow<String>
 }
 
 class DefaultLlmProvider : LlmProvider {
 
-    // 为每个 baseUrl 缓存 Retrofit 客户端
     private val apiClients = mutableMapOf<String, OpenAiApiService>()
     private val gson = Gson()
 
@@ -105,31 +131,41 @@ class DefaultLlmProvider : LlmProvider {
         }
     }
 
-    override fun generateResponse(prompt: String, model: Llm): Flow<String> {
-        return when (model) {
-            is Llm.Gemini -> {
-                val generativeModel = GenerativeModel(
-                    modelName = "gemini-pro", // Gemini 模型 ID
-                    apiKey = model.apiKey
-                )
-                generativeModel.generateContentStream(prompt).map { it.text ?: "" }.flowOn(Dispatchers.IO)
+    override fun generateResponse(prompt: String, model: LlmModel): Flow<String> {
+        return when (model.type) {
+            ModelType.GEMINI -> {
+                // 确保 Gemini 有 modelId
+                val modelId = model.modelId ?: "gemini-pro"
+                val generativeModel = GenerativeModel(modelName = modelId, apiKey = model.apiKey)
+                generativeModel.generateContentStream(prompt)
+                    .map { it.text ?: "" }
+                    .flowOn(Dispatchers.IO)
             }
-            // 所有 OpenAI 兼容的 API 都通过这里处理
-            is Llm.OpenAiCompatible -> {
-                generateOpenAiResponse(prompt, model)
+            ModelType.OPENAI_COMPATIBLE -> {
+                // 确保 baseUrl 和 modelId 不为空
+                val baseUrl = model.baseUrl
+                val modelId = model.modelId
+                requireNotNull(baseUrl) { "Base URL must not be null for OpenAI compatible models" }
+                requireNotNull(modelId) { "Model ID must not be null for OpenAI compatible models" }
+                generateOpenAiResponse(prompt, model.apiKey, baseUrl, modelId)
             }
         }
     }
 
-    private fun generateOpenAiResponse(prompt: String, model: Llm.OpenAiCompatible): Flow<String> = flow {
-        val apiService = getOpenAiApiClient(model.baseUrl)
+    private fun generateOpenAiResponse(
+        prompt: String,
+        apiKey: String,
+        baseUrl: String,
+        modelId: String
+    ): Flow<String> = flow {
+        val apiService = getOpenAiApiClient(baseUrl)
         val request = OpenAiChatRequest(
-            model = model.modelId,
+            model = modelId,
             messages = listOf(OpenAiMessage(role = "user", content = prompt))
         )
 
         try {
-            val response = apiService.streamChatCompletions(request, "Bearer ${model.apiKey}").execute()
+            val response = apiService.streamChatCompletions(request, "Bearer $apiKey").execute()
 
             if (!response.isSuccessful) {
                 throw IOException("API call failed: ${response.code()} ${response.errorBody()?.string()}")
@@ -145,15 +181,13 @@ class DefaultLlmProvider : LlmProvider {
                         try {
                             val chunk = gson.fromJson(line, OpenAiStreamChunk::class.java)
                             chunk.choices?.firstOrNull()?.delta?.content?.let { emit(it) }
-                        } catch (e: Exception) {
-                            // 忽略解析错误，继续处理下一行
+                        } catch (_: Exception) {
                             System.err.println("SSE parsing error for line: $line")
                         }
                     }
             }
         } catch (e: Exception) {
-            // 向上抛出异常，由 ViewModel 捕获并显示错误信息
             throw IOException("LLM request failed: ${e.message}", e)
         }
-    }.flowOn(Dispatchers.IO) // <-- 在这里切换到 IO 线程执行网络请求！
+    }.flowOn(Dispatchers.IO)
 }
