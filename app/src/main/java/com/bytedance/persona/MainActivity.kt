@@ -71,6 +71,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
 import com.bytedance.persona.llm.DefaultLlmProvider
+import com.bytedance.persona.llm.LlmRepository
 import com.bytedance.persona.model.Message
 import com.bytedance.persona.model.MessageType
 import com.bytedance.persona.model.Sender
@@ -85,8 +86,9 @@ import io.noties.markwon.image.coil.CoilImagesPlugin
 class MainActivity : ComponentActivity() {
 
     private val llmProvider = DefaultLlmProvider()
+    private val llmRepository by lazy { LlmRepository.getInstance(applicationContext) }
     private val viewModelFactory: ChatViewModelFactory by lazy {
-        ChatViewModelFactory(llmProvider)
+        ChatViewModelFactory(llmProvider, llmRepository)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -145,11 +147,12 @@ fun PersonaTopBar(viewModel: ChatViewModel, onNavigateToSettings: () -> Unit) {
         },
         actions = {
             Box {
+                val selectedModelName = viewModel.selectedLlm.value?.name ?: "Loading..."
                 Row(
                     modifier = Modifier.clickable { showMenu = true },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(viewModel.selectedLlm.value.name, style = MaterialTheme.typography.bodyMedium)
+                    Text(selectedModelName, style = MaterialTheme.typography.bodyMedium)
                     Icon(Icons.Filled.ArrowDropDown, contentDescription = "Switch LLM")
                 }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {

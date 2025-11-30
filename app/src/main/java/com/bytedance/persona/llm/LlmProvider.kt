@@ -1,6 +1,5 @@
 package com.bytedance.persona.llm
 
-import androidx.compose.runtime.mutableStateListOf
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
@@ -36,55 +35,6 @@ data class LlmModel(
     var baseUrl: String? = null,
     var modelId: String? = null
 )
-
-// 2. 创建一个存储库来管理模型列表 (为了简单起见，暂时使用内存存储)
-object LlmRepository {
-    private val _models = mutableStateListOf<LlmModel>()
-    val models: List<LlmModel> = _models
-
-    init {
-        // 添加一些默认模型
-        // 在实际应用中，这些可以从数据库或 SharedPreferences 加载
-        _models.addAll(listOf(
-            LlmModel(
-                name = "Gemini",
-                apiKey = "YOUR_GEMINI_API_KEY",
-                type = ModelType.GEMINI,
-                modelId = "gemini-pro"
-            ),
-            LlmModel(
-                name = "OpenAI",
-                apiKey = "YOUR_OPENAI_API_KEY",
-                type = ModelType.OPENAI_COMPATIBLE,
-                baseUrl = "https://api.openai.com/v1/",
-                modelId = "gpt-3.5-turbo"
-            ),
-            LlmModel(
-                name = "DeepSeek",
-                apiKey = "YOUR_DEEPSEEK_API_KEY",
-                type = ModelType.OPENAI_COMPATIBLE,
-                baseUrl = "https://api.deepseek.com/v1/",
-                modelId = "deepseek-chat"
-            )
-        ))
-    }
-
-    fun addModel(model: LlmModel) {
-        _models.add(model)
-    }
-
-    fun removeModel(model: LlmModel) {
-        _models.remove(model)
-    }
-
-    fun updateModel(model: LlmModel) {
-        val index = _models.indexOfFirst { it.id == model.id }
-        if (index != -1) {
-            _models[index] = model
-        }
-    }
-}
-
 
 // --- API 服务定义 (与之前相同) ---
 data class OpenAiChatRequest(
